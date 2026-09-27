@@ -1,0 +1,135 @@
+[project]
+name = "fraetor-dictation"
+version = "0.1.0"
+description = "録音開始/終了トリガーと無音区切りのバッチ認識+SSE疑似ストリーミング表示を提供する音声認識ライブラリ"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.13"
+dependencies = [
+    "pydantic>=2.12.5",
+    "sounddevice>=0.5.5",
+    "silero-vad>=6.2.1",
+    "torch>=2.12.1",
+    "azure-ai-transcription>=1.0.0b4",
+    "numpy>=2.5.3",
+    "torchaudio>=2.11.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/dictation"]
+
+[tool.ruff]
+target-version = "py313"
+src = ["src", "tests"]
+line-length = 88
+
+[tool.ruff.lint]
+select = [
+    "E",     # pycodestyle errors
+    "W",     # pycodestyle warnings
+    "F",     # pyflakes
+    "I",     # isort
+    "N",     # pep8-naming
+    "UP",    # pyupgrade
+    "B",     # flake8-bugbear
+    "A",     # flake8-builtins
+    "C4",    # flake8-comprehensions
+    "SIM",   # flake8-simplify
+    "ARG",   # flake8-unused-arguments
+    "PT",    # flake8-pytest-style
+    "PTH",   # flake8-use-pathlib
+    "TCH",   # flake8-type-checking
+    "RUF",   # ruff-specific rules
+    "S",     # flake8-bandit (セキュリティ)
+    "PL",    # pylint 互換 (convention/error/refactor/warning)
+]
+ignore = [
+    "COM812",  # ruff formatter と競合
+    "ISC001",  # ruff formatter と競合
+    "PLR0913", # too-many-arguments (DI で引数が多くなるため緩和)
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["dictation"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["ARG", "N802", "S", "PLC2401", "PLR2004"]
+
+[tool.mypy]
+python_version = "3.13"
+mypy_path = "src"
+packages = ["dictation", "tests"]
+plugins = ["pydantic.mypy"]
+strict = true
+show_error_codes = true
+
+[[tool.mypy.overrides]]
+module = "sounddevice"
+ignore_missing_imports = true
+follow_untyped_imports = true
+
+[[tool.mypy.overrides]]
+module = "azure.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "silero_vad"
+ignore_missing_imports = true
+
+[tool.pydantic-mypy]
+init_forbid_extra = true
+init_typed = true
+warn_required_dynamic_aliases = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+timeout = 10
+
+[tool.importlinter]
+root_package = "dictation"
+include_external_packages = true
+
+[[tool.importlinter.contracts]]
+name = "層依存方向"
+type = "layers"
+layers = ["dictation.infrastructure | dictation.application", "dictation.domain"]
+
+[[tool.importlinter.contracts]]
+name = "Domain層はサードパーティSDKに依存しない"
+type = "forbidden"
+source_modules = ["dictation.domain"]
+forbidden_modules = ["sounddevice", "torch", "silero_vad", "azure"]
+
+[[tool.importlinter.contracts]]
+name = "dictationはFraetor固有モジュールに依存しない"
+type = "forbidden"
+source_modules = ["dictation"]
+forbidden_modules = ["src"]
+
+[dependency-groups]
+dev = [
+    "import-linter>=2.13",
+    "mypy>=1.19.1",
+    "pytest>=9.0.2",
+    "pytest-asyncio>=1.3.0",
+    "pytest-cov>=7.0.0",
+    "pytest-timeout>=2.4.0",
+    "ruff>=0.15.4",
+]
+
+[tool.uv]
+exclude-newer = "14 days"
+
+[tool.uv.sources]
+torch = [{ index = "pytorch-cpu" }]
+torchaudio = [{ index = "pytorch-cpu" }]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
