@@ -30,6 +30,7 @@ from dictation import (
     SSEBroadcaster,
     SttEventRelay,
     TranscriptionQueue,
+    create_audio_capture,
     create_stt_engine,
     create_vad,
 )
@@ -155,6 +156,21 @@ async def run_session(
 
 def recognized_texts(events: list[dict[str, str]]) -> list[str]:
     return [json.loads(e["data"])["text"] for e in events if e["event"] == "recognized"]
+
+
+@pytest.fixture
+def broken_audio_capture(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> AudioCapturePort:
+    """存在しないALSAカードを指す設定で、実デバイスのオープンを必ず失敗させる。"""
+    conf_path = tmp_path / "broken_asound.conf"
+    conf_path.write_text(
+        "pcm.!default {\n    type hw\n    card 9999\n}\n"
+        "ctl.!default {\n    type hw\n    card 9999\n}\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("ALSA_CONFIG_PATH", str(conf_path))
+    return create_audio_capture(sample_rate=_SAMPLE_RATE)
 
 
 @pytest.fixture

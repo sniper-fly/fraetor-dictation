@@ -62,7 +62,7 @@ uv run lint-imports
 `RecordingSessionService` を直接動かす。音声は本人の声を含むためGit管理外。
 次の環境変数が未設定なら、通常の `uv run pytest` ではスキップされる。
 
-- `FRAETOR_DICTATION_AUDIO_DIR`: WAV (16kHz/16bit/mono) のフォルダ。必要なファイルは `01_normal_speech.wav` と `06_long_speech.wav`
+- `FRAETOR_DICTATION_AUDIO_DIR`: WAV (16kHz/16bit/mono) のフォルダ。必要なファイルは `01`〜`04` と `06` の WAV (想定発話はFraetorの `tests/e2e/fixtures/audio/README.md` を参照)
 - `FRAETOR_DICTATION_MAI_ENDPOINT` / `FRAETOR_DICTATION_MAI_API_KEY`: MAIの接続情報
 
 資格情報をAWS SSMから取る場合は `scripts/run_e2e.sh` を使う (SSOログイン済みが前提)。
