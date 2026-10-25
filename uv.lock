@@ -9,7 +9,7 @@ resolution-markers = [
 ]
 
 [options]
-exclude-newer = "2026-10-11T08:04:24.744764042Z"
+exclude-newer = "2026-10-11T14:45:03.945704645Z"
 exclude-newer-span = "P14D"
 
 [[package]]
@@ -422,7 +422,7 @@ wheels = [
 
 [[package]]
 name = "fraetor-dictation"
-version = "0.2.0"
+version = "0.3.0"
 source = { editable = "." }
 dependencies = [
     { name = "azure-ai-transcription" },

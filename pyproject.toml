@@ -1,6 +1,6 @@
 [project]
 name = "fraetor-dictation"
-version = "0.2.0"
+version = "0.3.0"
 description = "録音開始/終了トリガーと無音区切りのバッチ認識+SSE疑似ストリーミング表示を提供する音声認識ライブラリ"
 readme = "README.md"
 license = "MIT"
