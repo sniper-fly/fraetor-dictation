@@ -52,7 +52,8 @@
 
 1. **層の公開口(`dictation.domain.ports`、`dictation.application.*`、各`infrastructure`のfactory)を経由して使う。** ホスト側のimport-linterが「PresentationはInfrastructure具象を直接importしない」を検証できるよう、`dictation/__init__.py` 経由の一括importは使わない(`__init__.py` が全層を再exportするため、層分離の検証が無効になる)。ファクトリ(`create_stt_engine`等)を経由し、`MaiTranscribeClient`のような具象クラスを直接importしない。
    - **例外1: コンポジションルート(ホストの `containers.py` 等のDI組み立て役)は、`infrastructure` の具象を直接importしてよい。** 「どの実装を使うか」を決めて部品を組み立てるのが役割であり、具象を知っていること自体が仕事だから。この例外が及ぶのは組み立て役のみで、Presentation層・ユースケース・ドメイン層・アダプタには及ばない。
-   - **例外2: ライブラリが「ホスト向けのテスト支援」として公開している部品は、テストから使ってよい。** 対象は、公開口(`from dictation import X`)に明示的に含まれている具象のみ(現状は `FileAudioCapture`。マイクの代わりにWAVを読み、`set_wav_path()` でファイルを切り替えられる)。本番の実装詳細(`MaiTranscribeClient` 等)は対象外。公開するかどうかはライブラリ側が決める。
+   - **例外2: ライブラリが公開口(`from dictation import X`、`__all__`)に明示的に含めている具象は、テストから `from dictation import X` で使ってよい。** 現状の対象は `FileAudioCapture`(マイクの代わりにWAVを読み、`set_wav_path()` でファイルを切り替えられるE2E用の差し替え部品)と `SSEBroadcaster`(設定も外部依存もないインメモリのSSE配信器。フェイクを自作するより本物を使う方が自然)。公開口に含まれていない具象(`MaiTranscribeClient` 等の本番の実装詳細)は対象外で、ファクトリ経由で使う。何を公開するかはライブラリ側が決める。
+   - **補足: この例外はテストコードにだけ適用する。** 本番コードの `src.presentation` 等から `from dictation import X` を使うと、`__init__.py` が全層を再exportするためimport-linterの層分離検証が無効になる。本番コードは層の公開口(`dictation.domain.ports`、`dictation.application.*`、ファクトリ)を使う。
 2. **テストでライブラリの内部属性(`_locale` 等のアンダースコア付き)を検証しない。** ライブラリ内部の振る舞い(生成時に設定が反映されるか等)はライブラリ側のテストで検証する。ホスト側のテストが検証するのは、「ホストの値が正しくライブラリへ配線されているか」だけ(例: ファクトリへ渡す関数が、ホストの設定の最新値を返すか)。
 3. **ライブラリの内部実装を継承・上書き・monkeypatchしない。** 振る舞いを変えたいときはポートを実装する。足りなければライブラリに「口」を足す。
 4. **ライブラリのコードをコピーして改造しない。** 必要ならライブラリ側を直す。
