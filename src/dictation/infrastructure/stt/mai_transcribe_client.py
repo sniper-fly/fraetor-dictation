@@ -86,6 +86,12 @@ class MaiTranscribeClient(SttEnginePort):
         with self._lock:
             self._buffer.extend(buffer)
 
+    def discard_pending_audio(self) -> None:
+        """未送信の音声を破棄する。送信済み位置を現在のバッファ末尾まで進めるだけで、
+        送信済みの区間は消さない (さかのぼり切り出しの余地を残す方針を保つ)。"""
+        with self._lock:
+            self._sent_offset_bytes = len(self._buffer)
+
     async def flush(self, *, trim_before_sample: int | None) -> str:
         """未送信区間を1セグメントとして送信する。バッファは解放しない。"""
         wav_bytes = self._extract_pending_wav(trim_before_sample)

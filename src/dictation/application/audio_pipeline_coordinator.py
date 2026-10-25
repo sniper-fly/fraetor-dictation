@@ -125,7 +125,9 @@ class AudioPipelineCoordinator:
 
         STT の stop() (文字起こし本体、重い処理) はここでは呼ばない。
         呼び出し元が `TranscriptionQueue` にジョブとして委譲する。残っている
-        未送信区間は、その stop() が最終セグメントとして送信する。
+        未送信区間は、その stop() が最終セグメントとして送信する。ただし未送信
+        区間に新しい発話が無い (無音のみ) ときは、送っても認識結果が空で応答時間の
+        分だけ完了が遅れるだけなので、STT に未送信分の破棄を指示してから返す。
         """
         await self._audio_capture.stop_recording()
         # 進行中の flush の完了を待ってから監視を止める。送信の途中で
@@ -136,6 +138,11 @@ class AudioPipelineCoordinator:
             if self._segment_monitor:
                 await self._segment_monitor.stop()
                 self._segment_monitor = None
+            # 判断は _pending_speech_start_sample をリセットする前に行う。flush の
+            # 完了を待った後 (ロック内) で見るのは、待っている間に flush が未送信の
+            # 発話を消化した結果を反映するため。
+            if self._stt_client and self._pending_speech_start_sample is None:
+                self._stt_client.discard_pending_audio()
 
         stt_client = self._stt_client
         event_queue = self._event_queue

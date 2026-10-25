@@ -135,6 +135,37 @@ class TestStop:
 
         assert result is None
 
+    async def test_discards_pending_audio_when_no_speech_since_last_send(
+        self,
+    ) -> None:
+        """未送信区間に新しい発話が無ければ、停止時に未送信の音声を捨てる。
+
+        STT の stop() は未送信の PCM を最終セグメントとして送るため、無音のみ
+        でも送って応答時間 (0.3〜5.1秒) の分だけ session_end を遅らせる。
+        「新しい発話があったか」を知っているのはコーディネーターだけなので、
+        ここで判断して STT に破棄を指示する。
+        """
+        mock_stt, mock_vad, mock_audio = _setup_mocks()
+        coordinator = _make_coordinator(mock_audio, mock_stt, mock_vad)
+        await coordinator.start()
+        coordinator._on_audio_chunk(b"silence-chunk")  # 発話なし(開始位置None)
+
+        await coordinator.stop()
+
+        mock_stt.discard_pending_audio.assert_called_once()
+
+    async def test_keeps_pending_audio_when_speech_not_yet_sent(self) -> None:
+        """未送信の発話があるまま停止したら、捨てずに最終セグメントとして送らせる。"""
+        mock_stt, mock_vad, mock_audio = _setup_mocks()
+        mock_vad.last_speech_start_sample = 1000
+        coordinator = _make_coordinator(mock_audio, mock_stt, mock_vad)
+        await coordinator.start()
+        coordinator._on_audio_chunk(b"speech-chunk")  # 未flushの発話あり
+
+        await coordinator.stop()
+
+        mock_stt.discard_pending_audio.assert_not_called()
+
 
 class TestSegmentFlush:
     async def test_silence_triggers_flush_with_speech_start_sample(self) -> None:

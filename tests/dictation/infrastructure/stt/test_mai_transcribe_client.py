@@ -222,12 +222,11 @@ class TestStop:
         assert mock_sdk_client.transcribe.call_count == 1
 
     async def test_stop_sends_trailing_silence_after_flush(self) -> None:
-        """flush 後に残った無音のみの音声も、stop() は最終セグメントとして送る。
+        """flush 後に残った無音のみの音声も、stop() 単体では最終セグメントとして送る。
 
-        現状の仕様を固定するテスト。stop() は VAD の情報を持たないため、未送信の
-        PCM があれば無音のみでも送信する。発話後の無音が MAI の応答時間の分だけ
-        stop() を遅らせるため、この送信を省くかは仕様判断が必要 (取りこぼし防止の
-        安全網でもある)。省く場合はこのテストを書き換える。
+        stop() は VAD の情報を持たないため、未送信の PCM があれば無音のみでも送信する。
+        無音のみの区間を省く判断はコーディネーターが行い、`discard_pending_audio()`
+        で未送信分を破棄させてから stop() を呼ぶ (下記 TestDiscardPendingAudio)。
         """
         client, mock_sdk_client = _make_client()
         _stub_transcribe(mock_sdk_client, "発話", "")
@@ -240,6 +239,44 @@ class TestStop:
 
         assert mock_sdk_client.transcribe.call_count == 2
         assert _sent_frames(mock_sdk_client, 1) == b"\x00\x00" * 8
+
+
+class TestDiscardPendingAudio:
+    async def test_stop_after_discard_sends_nothing(self) -> None:
+        """未送信分を破棄した後の stop() は、MAI へ何も送らない。"""
+        client, mock_sdk_client = _make_client()
+        _stub_transcribe(mock_sdk_client, "発話")
+        await client.start()
+        client.feed_audio(b"\x01\x02")
+        await client.flush(trim_before_sample=None)
+        client.feed_audio(b"\x00\x00" * 8)  # 発話後の無音
+
+        client.discard_pending_audio()
+        await client.stop()
+
+        assert mock_sdk_client.transcribe.call_count == 1
+
+    async def test_discard_only_drops_audio_fed_before_the_call(self) -> None:
+        """破棄は呼んだ時点までの未送信分だけで、その後に届いた音声は送る。"""
+        client, mock_sdk_client = _make_client()
+        _stub_transcribe(mock_sdk_client, "後半")
+        await client.start()
+        client.feed_audio(b"\x00\x00" * 8)
+        client.discard_pending_audio()
+        client.feed_audio(b"\x03\x04")
+
+        await client.stop()
+
+        assert _sent_frames(mock_sdk_client) == b"\x03\x04"
+
+    async def test_discard_with_nothing_pending_is_noop(self) -> None:
+        client, mock_sdk_client = _make_client()
+        await client.start()
+
+        client.discard_pending_audio()
+        await client.stop()
+
+        mock_sdk_client.transcribe.assert_not_called()
 
 
 class TestFlush:
