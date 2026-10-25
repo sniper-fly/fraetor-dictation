@@ -25,6 +25,7 @@ from dictation.domain.ports import (
     SttEnginePort,
 )
 from dictation.infrastructure.audio.factory import create_audio_capture
+from dictation.infrastructure.audio.file_capture import FileAudioCapture
 from dictation.infrastructure.messaging.sse_broadcaster import SSEBroadcaster
 from dictation.infrastructure.stt.factory import create_stt_engine
 from dictation.infrastructure.vad.factory import create_vad
@@ -34,6 +35,7 @@ __all__ = [
     "AudioCapturePort",
     "AudioPipelineCoordinator",
     "EventBroadcasterPort",
+    "FileAudioCapture",
     "InterimEvent",
     "RecognizedEvent",
     "RecognizedTextTransformPort",
