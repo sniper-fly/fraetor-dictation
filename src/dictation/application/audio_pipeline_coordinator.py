@@ -64,6 +64,11 @@ class AudioPipelineCoordinator:
         # 発話開始を検出した直後に一度だけ書き込み、`_flush_segment`
         # (イベントループ) が読んでリセットする。
         self._pending_speech_start_sample: int | None = None
+        # VAD から最後に取り込んだ発話開始位置。VAD の `last_speech_start_sample` は
+        # 新しい発話が来るまで古い値を保持し続けるため、これと比較して「新しい発話か」を
+        # 判定する。比較しないと flush 後の無音チャンクで古い値を拾い直し、無音のみの
+        # 音声を STT へ繰り返し送ってしまう。
+        self._last_seen_speech_start_sample: int | None = None
         # flush の HTTP 送信が並走すると、レスポンス順の揺れで
         # SegmentAccumulator が到着順に振るセグメント ID の順序が崩れる。
         # TranscriptionQueue がセッション間の順序を単一ワーカーで守るのと
@@ -86,6 +91,7 @@ class AudioPipelineCoordinator:
         """STT接続 → マイクキャプチャ開始。失敗時は例外を伝播する。"""
         self._session_start_time = time.monotonic()
         self._pending_speech_start_sample = None
+        self._last_seen_speech_start_sample = None
         if self._segment_lifecycle_hook:
             self._segment_lifecycle_hook.reset()
         self._event_queue = asyncio.Queue()
@@ -137,6 +143,7 @@ class AudioPipelineCoordinator:
         self._event_queue = None
         self._vad = None
         self._pending_speech_start_sample = None
+        self._last_seen_speech_start_sample = None
 
         if stt_client is None or event_queue is None:
             return None
@@ -182,7 +189,9 @@ class AudioPipelineCoordinator:
         if self._vad:
             self._vad.feed(buffer)
             start = self._vad.last_speech_start_sample
-            if start is not None and self._pending_speech_start_sample is None:
-                self._pending_speech_start_sample = start
-                if self._segment_lifecycle_hook:
-                    self._segment_lifecycle_hook.on_speech_start()
+            if start is not None and start != self._last_seen_speech_start_sample:
+                self._last_seen_speech_start_sample = start
+                if self._pending_speech_start_sample is None:
+                    self._pending_speech_start_sample = start
+                    if self._segment_lifecycle_hook:
+                        self._segment_lifecycle_hook.on_speech_start()

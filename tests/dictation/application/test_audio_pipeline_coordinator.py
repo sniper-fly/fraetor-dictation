@@ -231,6 +231,30 @@ class TestSegmentFlush:
 
         mock_stt.flush.assert_not_awaited()
 
+    async def test_no_flush_after_flush_when_only_silence_follows(self) -> None:
+        """flush済みの後に新しい発話が無く無音だけが続くとき、再flushしない。
+
+        VAD の `last_speech_start_sample` は「直近に検出した発話の開始位置」を
+        保持し続け、新しい発話が来るまで `None` に戻らない。flush 後の
+        無音チャンクでこの古い値を「未送信の発話開始」と取り違えると、
+        無音のみの音声が繰り返し STT へ送られる。
+        """
+        mock_stt, mock_vad, mock_audio = _setup_mocks()
+        coordinator = _make_coordinator(mock_audio, mock_stt, mock_vad)
+        await coordinator.start()
+
+        mock_vad.last_speech_start_sample = 1000  # 発話Aを検出
+        coordinator._on_audio_chunk(b"speech-chunk")
+        await coordinator._flush_segment()
+        assert mock_stt.flush.await_count == 1
+
+        # 以後は無音のみ。VAD の last_speech_start_sample は 1000 のまま残る。
+        coordinator._on_audio_chunk(b"silence-chunk")
+        coordinator._on_audio_chunk(b"silence-chunk")
+        await coordinator._flush_segment()
+
+        assert mock_stt.flush.await_count == 1, "無音のみの区間を再送してしまった"
+
     async def test_concurrent_flushes_are_serialized(self) -> None:
         """flush の並走を防ぐ (レスポンス順の入れ替わりでセグメント順序が崩れる)。
 
@@ -382,6 +406,53 @@ class TestSegmentLifecycleHook:
         coordinator._on_audio_chunk(b"chunk-a-again")
 
         mock_hook.on_speech_start.assert_called_once()
+
+    async def test_second_speech_in_same_unflushed_span_does_not_renotify(
+        self,
+    ) -> None:
+        """同じ未flush区間に別の発話開始位置が来ても、通知は最初の1回だけ。"""
+        mock_stt, mock_vad, mock_audio = _setup_mocks()
+        mock_hook = MagicMock()
+        coordinator = AudioPipelineCoordinator(
+            mock_audio,
+            lambda _q: mock_stt,
+            lambda: mock_vad,
+            lambda: _NEVER_FIRES_SEC,
+            segment_lifecycle_hook=mock_hook,
+        )
+        await coordinator.start()
+
+        mock_vad.last_speech_start_sample = 1000
+        coordinator._on_audio_chunk(b"chunk-a")
+        mock_vad.last_speech_start_sample = 5000  # 同じ未flush区間内の2つ目の発話
+        coordinator._on_audio_chunk(b"chunk-b")
+
+        mock_hook.on_speech_start.assert_called_once()
+
+    async def test_new_speech_after_flush_notifies_again(self) -> None:
+        """flush後に新しい発話(別の開始位置)が来たら、新しい区間として再通知する。"""
+        mock_stt, mock_vad, mock_audio = _setup_mocks()
+        mock_stt.flush = AsyncMock(return_value="認識結果")
+        mock_hook = MagicMock()
+        coordinator = AudioPipelineCoordinator(
+            mock_audio,
+            lambda _q: mock_stt,
+            lambda: mock_vad,
+            lambda: _NEVER_FIRES_SEC,
+            segment_lifecycle_hook=mock_hook,
+        )
+        await coordinator.start()
+
+        mock_vad.last_speech_start_sample = 1000
+        coordinator._on_audio_chunk(b"chunk-a")
+        await coordinator._flush_segment()
+        mock_vad.last_speech_start_sample = 9000  # flush後の新しい発話
+        coordinator._on_audio_chunk(b"chunk-b")
+        await coordinator._flush_segment()
+
+        assert mock_hook.on_speech_start.call_count == 2
+        assert mock_stt.flush.await_count == 2
+        mock_stt.flush.assert_awaited_with(trim_before_sample=9000)
 
     async def test_flush_with_text_calls_on_flush_with_true(self) -> None:
         mock_stt, mock_vad, mock_audio = _setup_mocks()
