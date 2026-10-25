@@ -17,7 +17,7 @@ import asyncio
 import json
 import os
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NamedTuple
 
 import pytest
 
@@ -84,16 +84,21 @@ def audio_path(wav_filename: str) -> Path:
     return path
 
 
-async def run_session(
-    audio_capture: AudioCapturePort,
-    *,
-    settings: dict[str, float] | None = None,
-    session_end_wait_sec: float = SESSION_END_WAIT_SEC,
-) -> list[dict[str, str]]:
-    """録音開始から session_end までのイベントを集めて返す。
+class Harness(NamedTuple):
+    """組み立て済みのサービスと、イベントを受けるキュー。"""
 
-    `settings` は `_DEFAULTS` の上書き。`session_end` が届かなければ
-    `TimeoutError`、録音開始の失敗は `error` イベントとして返る。
+    service: RecordingSessionService
+    transcription_queue: TranscriptionQueue
+    events_queue: asyncio.Queue[dict[str, str]]
+    mai_timeout_sec: float
+
+
+def build_harness(
+    audio_capture: AudioCapturePort, settings: dict[str, float] | None = None
+) -> Harness:
+    """実VAD・実MAIで `RecordingSessionService` を組み立てる。
+
+    `settings` は `_DEFAULTS` の上書き。
     """
     cfg = {**_DEFAULTS, **(settings or {})}
     broadcaster = SSEBroadcaster()
@@ -134,23 +139,37 @@ async def run_session(
         max_session_duration_sec_fn=lambda: cfg["max_session_duration_sec"],
         silence_timeout_sec_fn=lambda: cfg["silence_timeout_sec"],
     )
+    return Harness(
+        service, transcription_queue, broadcaster.subscribe(), cfg["mai_timeout_sec"]
+    )
 
-    events_queue = broadcaster.subscribe()
+
+async def run_session(
+    audio_capture: AudioCapturePort,
+    *,
+    settings: dict[str, float] | None = None,
+    session_end_wait_sec: float = SESSION_END_WAIT_SEC,
+) -> list[dict[str, str]]:
+    """録音開始から session_end (または error) までのイベントを集めて返す。
+
+    届かなければ `TimeoutError`。
+    """
+    harness = build_harness(audio_capture, settings)
     events: list[dict[str, str]] = []
 
     async def collect() -> None:
         while True:
-            event = await events_queue.get()
+            event = await harness.events_queue.get()
             events.append(event)
             if event["event"] in ("session_end", "error"):
                 return
 
     try:
-        await service.start_session()
+        await harness.service.start_session()
         await asyncio.wait_for(collect(), timeout=session_end_wait_sec)
     finally:
-        await service.stop_session()
-        await transcription_queue.shutdown(timeout=cfg["mai_timeout_sec"])
+        await harness.service.stop_session()
+        await harness.transcription_queue.shutdown(timeout=harness.mai_timeout_sec)
     return events
 
 
@@ -170,6 +189,12 @@ def broken_audio_capture(
         encoding="utf-8",
     )
     monkeypatch.setenv("ALSA_CONFIG_PATH", str(conf_path))
+    return create_audio_capture(sample_rate=_SAMPLE_RATE)
+
+
+@pytest.fixture
+def real_audio_capture() -> AudioCapturePort:
+    """実マイクデバイスを開くキャプチャ (実デバイスのストリーム開閉の検証用)。"""
     return create_audio_capture(sample_rate=_SAMPLE_RATE)
 
 

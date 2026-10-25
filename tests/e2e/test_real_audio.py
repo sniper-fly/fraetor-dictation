@@ -6,10 +6,11 @@ Fraetorの `tests/e2e/fixtures/audio/README.md` の想定発話と同じもの�
 
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import TYPE_CHECKING
 
-from tests.e2e.conftest import recognized_texts, run_session
+from tests.e2e.conftest import build_harness, recognized_texts, run_session
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -19,6 +20,9 @@ if TYPE_CHECKING:
 # 長文の session_end が届く最悪の時刻 = 録音が止まる上限 + 進行中のMAI送信の最大待ち。
 _LONG_MAX_SESSION_SEC = 30
 _LONG_MAI_TIMEOUT_SEC = 15.0
+
+_TOGGLE_INTERVAL_SEC = 0.5
+_TOGGLE_CYCLES = 3
 
 
 class TestRealAudio:
@@ -139,3 +143,29 @@ class TestRealAudio:
 
         assert events[-1]["event"] == "error"
         assert "失敗" in events[-1]["data"]
+
+    async def test_repeated_start_stop_on_real_device_does_not_fail(
+        self, real_audio_capture: AudioCapturePort
+    ) -> None:
+        """実マイクのストリームを開閉する録音開始→停止を連続しても、失敗しない
+
+        `PerSessionStreamCapture` がセッションごとにストリームを開閉する実装の
+        ライフサイクルを、`FileAudioCapture` ではなく実デバイスで検証する。
+        """
+        harness = build_harness(real_audio_capture)
+
+        for _ in range(_TOGGLE_CYCLES):
+            await harness.service.start_session()
+            await asyncio.sleep(_TOGGLE_INTERVAL_SEC)
+            await harness.service.stop_session()
+            await asyncio.sleep(_TOGGLE_INTERVAL_SEC)
+        await harness.transcription_queue.shutdown(timeout=harness.mai_timeout_sec)
+
+        events = []
+        while not harness.events_queue.empty():
+            events.append(harness.events_queue.get_nowait())
+        status = [
+            json.loads(e["data"])["recording"] for e in events if e["event"] == "status"
+        ]
+        assert status == [True, False] * _TOGGLE_CYCLES
+        assert not [e for e in events if e["event"] == "error"]
