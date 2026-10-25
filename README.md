@@ -3,6 +3,10 @@
 録音開始/終了トリガーと無音区切りのバッチ認識 + SSE 疑似ストリーミング表示を提供する音声認識ライブラリ。
 [Fraetor](https://github.com/sniper-fly/Fraetor) の `dictation` モジュールを抽出した独立パッケージ。
 
+## ホストアプリとの責務境界
+
+機能をライブラリとホストのどちらに置くかの判断基準は [`docs/boundary.md`](docs/boundary.md) を参照。
+
 ## アーキテクチャ
 
 4層クリーンアーキテクチャ (Domain / Application / Infrastructure) を採用する。

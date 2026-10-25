@@ -1,0 +1,84 @@
+# fraetor-dictation と ホストアプリの責務境界
+
+このライブラリは複数のホストアプリ(Fraetor、Tanakahn等)から使われる。「機能を足すとき、ライブラリとホストのどちらに置くか」の判断基準を定める。
+**この文書が境界の正本である。** ホスト側の `CLAUDE.md` はこの文書への参照を持つ。
+
+## 一言で言うと
+
+- **ライブラリ = 「音声を認識結果に変える」仕組み。どのホストでも同じで済むもの**
+- **ホスト = 「認識結果を使って何をするか」と、環境・設定・資格情報・永続化**
+
+## 判断フロー
+
+新しい機能・変更を置く場所は、上から順に当てはめて最初に該当した方に置く。
+
+1. **特定のホストにしか意味がないか?**(そのアプリのUI、保存形式、業務ルール、特定機能のためのロジック)
+   → **ホスト**
+2. **ホスト固有の型・設定・資格情報に依存するか?**(`DynamicSettings`、SSM、`FinalizedSession` 等)
+   → **ホスト**。依存を外せない限りライブラリには入れない
+3. **2つ以上のホストが同じコードを必要とするか(または必要になる見込みが具体的にあるか)?**
+   → **ライブラリ**
+4. **音声の取得・認識・区切り・配信という、録音パイプライン自体の振る舞いか?**
+   → **ライブラリ**
+5. **どちらとも言えない**
+   → **ホストに置く。** 2つ目のホストが実際に必要としたとき、ライブラリへ移す(早すぎる共通化は避ける)
+
+## 置き場所の一覧
+
+| 種類 | 置き場所 | 具体例 |
+|---|---|---|
+| 録音セッションのライフサイクル、タイムアウト、キュー処理 | ライブラリ | `RecordingSessionService`, `TranscriptionQueue` |
+| 無音区切り・発話検出・STTへの送信制御 | ライブラリ | `AudioPipelineCoordinator`, `SegmentSilenceMonitor` |
+| 音声入力デバイス、STTエンジン、VADの実装 | ライブラリ | `sounddevice`実装, `MaiTranscribeClient`, `SileroSpeechActivityDetector` |
+| STTイベント型、セグメント、セッションのモデル | ライブラリ | `InterimEvent`, `RecognizedEvent`, `RecordingSession` |
+| SSEによる逐次配信 | ライブラリ | `SSEBroadcaster` |
+| **拡張点の「口」(ポートのABC)** | ライブラリ | `SegmentLifecycleHookPort`, `SessionFinalizationHookPort` |
+| **拡張点の「中身」(ポートの実装)** | **ホスト** | `IntentTranslationDictationAdapter`, `DictationSessionFinalizationAdapter` |
+| 設定値の保存・編集UI・設定ファイル | ホスト | `DynamicSettings`, `JsoncSettingsRepository` |
+| 資格情報の取得(SSM、環境変数、`.env`) | ホスト | `secrets_loader.py` |
+| 認識結果の永続化・履歴・クリップボード | ホスト | `transcript_history` |
+| 認識結果の後処理(校正、翻訳、要約、送信) | ホスト | `proofreading`, `intent_translation`, Herdr連携 |
+| HTTPルート、画面、DIコンテナでの組み立て | ホスト | `presentation/`, `containers.py` |
+
+## ライブラリが守る制約(破ってはいけない)
+
+1. **ホスト固有の型・名前を参照しない。** `src` をimportしない(import-linterで機械的に検証)。
+2. **環境から値を読まない。** 環境変数・設定ファイル・固定パス・資格情報を、ライブラリ内で直接読まない。ホストが決める値は、コンストラクタ引数で受け取る。
+3. **動的に変わりうる設定は `Callable[[], T]` で受ける。** 値そのものではなく関数を受け取り、使う時点で呼ぶ。これでホストは設定画面の変更を次のセッションに反映できる。変わらない値(接続先、APIキー等)は値のまま受けてよい。
+4. **ホストが実装する拡張点は、必ずポート(ABC)として定義する。** 「このホストのためのif文」をライブラリに入れてはいけない。
+5. **機能を足す動機が1つのホストだけなら、ライブラリに入れない。** 拡張点の「口」を足し、「中身」はホストに書く。
+
+## ホストが守る制約
+
+1. **層の公開口(`dictation.domain.ports`、`dictation.application.*`、各`infrastructure`のfactory)を経由して使う。** ホスト側のimport-linterが「PresentationはInfrastructure具象を直接importしない」を検証できるよう、`dictation/__init__.py` 経由の一括importは使わない(`__init__.py` が全層を再exportするため、層分離の検証が無効になる)。ファクトリ(`create_stt_engine`等)を経由し、`MaiTranscribeClient`のような具象クラスを直接importしない。
+2. **ライブラリの内部実装を継承・上書き・monkeypatchしない。** 振る舞いを変えたいときはポートを実装する。足りなければライブラリに「口」を足す。
+3. **ライブラリのコードをコピーして改造しない。** 必要ならライブラリ側を直す。
+4. **ホスト固有の関心事を、ライブラリのドメインモデルに載せない。** 例: `RecordingSession` に履歴用のフィールドを足すのではなく、ホストの型へ変換するアダプタを書く。
+
+## 変更の進め方
+
+ライブラリとホストの両方に変更が及ぶ場合は、次の順で行う。
+
+1. ライブラリ側を変更し、テスト・lint・型チェックを通す
+2. ライブラリをコミットし、タグを打ってpushする(後方互換を壊す場合はメジャー/マイナーを上げる)
+3. ホスト側で `uv add` してタグを進め、ホスト側の変更を入れる
+4. ホスト側のE2Eテストで確認する
+
+ライブラリ側を直さずホスト側で回避するのは、根本原因がホスト側にあるときだけにする。
+
+## 実例: 境界の判断
+
+- **セッション確定時にFraetorの履歴へ保存したい**
+  → フロー1に該当(Fraetorにしか意味がない)。ライブラリには `SessionFinalizationHookPort` という「口」だけを置き、`FinalizedSession` への変換と保存は Fraetor の `DictationSessionFinalizationAdapter` が持つ。
+- **設定画面で無音区切りの秒数を変えたい**
+  → 設定の保存・UIはホスト。ライブラリは `segment_silence_sec_fn: Callable[[], float]` を受け取るだけ。
+- **別のSTTエンジン(例: 真のストリーミングSTT)を追加したい**
+  → フロー4に該当(録音パイプライン自体)。`SttEnginePort` の実装としてライブラリに追加する。どのホストでも使える。
+- **認識結果を画面内容で翻訳したい(意図翻訳)**
+  → フロー1に該当(Fraetorの機能)。ライブラリの `RecognizedTextTransformPort` の中身として Fraetor 側に書く。
+- **Tanakahnでも「録音の開始/終了をタイマーに連動させたい」**
+  → 開始・終了の呼び出しはホストのユースケース。ライブラリは `RecordingSessionService.start_session()/stop_session()` を提供済みなので、タイマーとの連動はTanakahn側に書く。
+
+## 迷ったとき
+
+判断フローの5番に従い、ホストに置く。後からライブラリへ移すのは容易だが、一度ライブラリに入れたホスト固有のコードを取り除くのは、他のホストへの影響があり難しい。
