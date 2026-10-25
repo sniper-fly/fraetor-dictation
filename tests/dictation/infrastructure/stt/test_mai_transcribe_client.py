@@ -221,6 +221,26 @@ class TestStop:
 
         assert mock_sdk_client.transcribe.call_count == 1
 
+    async def test_stop_sends_trailing_silence_after_flush(self) -> None:
+        """flush 後に残った無音のみの音声も、stop() は最終セグメントとして送る。
+
+        現状の仕様を固定するテスト。stop() は VAD の情報を持たないため、未送信の
+        PCM があれば無音のみでも送信する。発話後の無音が MAI の応答時間の分だけ
+        stop() を遅らせるため、この送信を省くかは仕様判断が必要 (取りこぼし防止の
+        安全網でもある)。省く場合はこのテストを書き換える。
+        """
+        client, mock_sdk_client = _make_client()
+        _stub_transcribe(mock_sdk_client, "発話", "")
+        await client.start()
+        client.feed_audio(b"\x01\x02")
+        await client.flush(trim_before_sample=None)
+        client.feed_audio(b"\x00\x00" * 8)  # 発話後の無音
+
+        await client.stop()
+
+        assert mock_sdk_client.transcribe.call_count == 2
+        assert _sent_frames(mock_sdk_client, 1) == b"\x00\x00" * 8
+
 
 class TestFlush:
     async def test_sends_pending_audio_and_queues_recognized(self) -> None:
