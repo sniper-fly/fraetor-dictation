@@ -33,13 +33,15 @@ uv add "fraetor-dictation @ git+https://github.com/sniper-fly/fraetor-dictation.
 |---|---|
 | `AudioCapturePort` | マイク音声キャプチャ |
 | `SttEnginePort` | 音声認識エンジン |
+| `SttEngineSpecPort` | エンジンの仕様 (名前・設定モデル・生成)。`STT_ENGINE_SPECS` に MAI / Gemini が登録済み |
+| `SttLatencyHookPort` | STT 1リクエストごとの応答時間の通知先 (任意) |
 | `SpeechActivityDetectorPort` | 発話区間検出 (VAD) |
 | `EventBroadcasterPort` | SSE配信 |
 | `SegmentLifecycleHookPort` | 発話区切りタイミングの外部フック (任意) |
 | `RecognizedTextTransformPort` | recognizedイベントのテキスト変換フック (任意) |
 | `SessionFinalizationHookPort` | セッション確定時の通知フック (必須) |
 
-`create_audio_capture`/`create_stt_engine`/`create_vad` は標準実装 (sounddevice / Azure MAI Transcribe / Silero VAD) を組み立てるファクトリ関数。
+`create_audio_capture`/`create_stt_engine`/`create_vad` は標準実装 (sounddevice / Azure MAI Transcribe / Silero VAD) を組み立てるファクトリ関数。複数のSTTから選ぶ場合は `STT_ENGINE_SPECS[name]` の `settings_model` (設定の型・範囲・既定値) と `create()` を使う。
 
 ## 最小利用例
 

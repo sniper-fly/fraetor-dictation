@@ -27,8 +27,8 @@ def create_stt_engine(
 ) -> SttEnginePort:
     """設定に応じたSTTエンジンを生成する。
 
-    現状は MAI Transcribe のみだが、将来エンジンが増えた場合はここで分岐する
-    (design.md: プラットフォーム分岐がファクトリの1箇所のみであるのと同型)。
+    後方互換のため残している MAI Transcribe 専用のファクトリ。複数エンジンから
+    選ぶ場合は `STT_ENGINE_SPECS` (name → `SttEngineSpecPort`) を使う。
 
     ロケール・モデル名・タイムアウトは生成時 (= セッション開始時) に
     各 `Callable` から読む。エンジンはセッションごとに作り直されるため、

@@ -1,5 +1,6 @@
 import asyncio
 from datetime import datetime
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict
 
@@ -39,3 +40,17 @@ class TranscriptionJob(BaseModel):
     stt_client: SttEnginePort
     event_queue: asyncio.Queue[SttEvent]
     timed_out: bool
+
+
+class SttCredentials(BaseModel):
+    """STTエンジンの資格情報。ホストが取得して渡す (ライブラリは読まない)。
+
+    エンジンごとに使う項目が異なり、使わない項目は空のままでよい。
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    mai_endpoint: str = ""
+    mai_api_key: str = ""
+    vertex_sa_info: dict[str, Any] = {}
+    vertex_project: str = ""

@@ -16,7 +16,13 @@ from typing import TYPE_CHECKING
 
 import responses
 
-from dictation import create_stt_engine
+from dictation import (
+    MaiSettings,
+    SttCredentials,
+    SttLatencyHookPort,
+    create_stt_engine,
+)
+from dictation.infrastructure.stt.specs import MaiEngineSpec
 
 if TYPE_CHECKING:
     from dictation import SttEnginePort, SttEvent
@@ -85,3 +91,33 @@ class TestErrorResponses:
             await asyncio.sleep(0.6)
 
         assert queue.empty()
+
+
+class TestLatencyHook:
+    async def test_hook_receives_failure_and_exception_is_swallowed(self) -> None:
+        """5xx → succeeded=False で通知され、フックが例外を投げても録音は続く"""
+        calls: list[dict[str, object]] = []
+
+        class _Hook(SttLatencyHookPort):
+            def on_stt_completed(self, **kwargs: object) -> None:
+                calls.append(kwargs)
+                raise RuntimeError("hook broken")
+
+        with responses.RequestsMock() as rsps:
+            rsps.add(responses.POST, _TRANSCRIBE_URL_PATTERN, status=503, json={})
+            engine = MaiEngineSpec().create(
+                asyncio.Queue(),
+                credentials=SttCredentials(
+                    mai_endpoint="https://mai.example/", mai_api_key="k"
+                ),
+                sample_rate=_SAMPLE_RATE,
+                settings_fn=MaiSettings,
+                latency_hook=_Hook(),
+            )
+            await engine.start()
+            engine.feed_audio(_SILENCE_PCM)
+            await engine.stop()
+
+        assert len(calls) == 1
+        assert calls[0]["engine"] == "mai"
+        assert calls[0]["succeeded"] is False

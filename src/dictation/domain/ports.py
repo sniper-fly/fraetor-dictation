@@ -11,7 +11,7 @@ if TYPE_CHECKING:
     from datetime import datetime
 
     from dictation.domain.events import SttEvent
-    from dictation.domain.models import RecordingSession
+    from dictation.domain.models import RecordingSession, SttCredentials
 
 
 class AudioCapturePort(ABC):
@@ -178,3 +178,60 @@ class EventBroadcasterPort(ABC):
     @abstractmethod
     async def broadcast(self, event: str, data: Any) -> None:
         """全購読者にイベントを配信する。"""
+
+
+class SttLatencyHookPort(ABC):
+    """STT 1リクエストごとの応答時間の通知先 (計測の「口」)。
+
+    記録・集計・表示はホストが実装する。ライブラリはバッチ型エンジンの
+    送信前後を測り、成功・失敗・タイムアウトのいずれでも通知する。
+    実装が例外を投げても録音は止まらない (ライブラリ側で握り潰す)。
+    """
+
+    @abstractmethod
+    def on_stt_completed(
+        self,
+        *,
+        engine: str,
+        phase: str,
+        duration_sec: float,
+        audio_duration_sec: float,
+        succeeded: bool,
+    ) -> None:
+        """1回の送信が終わった。`phase` は `flush` / `stop`。"""
+
+
+class SttEngineSpecPort[SettingsT: BaseModel](ABC):
+    """STTエンジンの仕様 (名前・設定モデル・生成方法) を表すポート。
+
+    エンジンごとに使える設定値が異なるため、設定の型・範囲・選択肢・既定値は
+    エンジンごとの Pydantic モデルとして持つ。ホストは `settings_model` から
+    設定画面を組み立て、保存した値を `Callable` で `create()` に渡す。
+    表示用の日本語ラベルや単位はホストの責務で、ここには持たない。
+    """
+
+    @property
+    @abstractmethod
+    def name(self) -> str:
+        """エンジン名 (レジストリのキー。例: `mai`, `gemini`)。"""
+
+    @property
+    @abstractmethod
+    def settings_model(self) -> type[SettingsT]:
+        """このエンジンの設定を表すモデルの型。"""
+
+    @abstractmethod
+    def create(
+        self,
+        stt_event_queue: asyncio.Queue[SttEvent],
+        *,
+        credentials: SttCredentials,
+        sample_rate: int,
+        settings_fn: Callable[[], SettingsT],
+        latency_hook: SttLatencyHookPort | None = None,
+    ) -> SttEnginePort:
+        """エンジンを生成する。
+
+        設定は生成時 (= セッション開始時) に `settings_fn` から読む。
+        必要な資格情報が `credentials` に無ければ `ValueError` を投げる。
+        """

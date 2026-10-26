@@ -1,6 +1,6 @@
 [project]
 name = "fraetor-dictation"
-version = "0.3.0"
+version = "0.4.0"
 description = "録音開始/終了トリガーと無音区切りのバッチ認識+SSE疑似ストリーミング表示を提供する音声認識ライブラリ"
 readme = "README.md"
 license = "MIT"
@@ -13,6 +13,7 @@ dependencies = [
     "azure-ai-transcription>=1.0.0b4",
     "numpy>=2.5.3",
     "torchaudio>=2.11.0",
+    "google-genai>=2.29.0",
 ]
 
 [build-system]
@@ -103,7 +104,7 @@ layers = ["dictation.infrastructure | dictation.application", "dictation.domain"
 name = "Domain層はサードパーティSDKに依存しない"
 type = "forbidden"
 source_modules = ["dictation.domain"]
-forbidden_modules = ["sounddevice", "torch", "silero_vad", "azure"]
+forbidden_modules = ["sounddevice", "torch", "silero_vad", "azure", "google"]
 
 [[tool.importlinter.contracts]]
 name = "dictationはFraetor固有モジュールに依存しない"
